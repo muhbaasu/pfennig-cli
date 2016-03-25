@@ -1,16 +1,26 @@
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE Rank2Types                 #-}
 
 module Lib where
 
+import qualified Data.ByteString                      as BS
 import           Data.Monoid                          ((<>))
+import qualified Data.Serialize                       as S
+import qualified Data.Serialize.Get                   as SG
+import qualified Data.Serialize.Put                   as SP
 import qualified Data.Text                            as T
+import qualified Data.Text.Encoding                   as TE
 import qualified Data.Time.Calendar                   as Cal
 import qualified Data.Time.Format                     as Cal
 import           GHC.Generics                         (Generic (..))
 import qualified Options.Applicative                  as OA
 import qualified Options.Applicative.Builder.Internal as OA
+import qualified Pipes                                as P
+import qualified Pipes.ByteString                     as PBS
+import qualified Pipes.Safe                           as P
+import qualified System.IO                            as IO
 
 data Command =
     Add AddOptions
@@ -21,14 +31,14 @@ data Command =
 
 data Tag = Tag
   { _tagName :: T.Text
-  } deriving (Show, Eq)
+  } deriving (Show, Eq, Generic)
 
 instance Read Tag where
   readsPrec _ t = [(Tag $ T.pack t, "")]
 
 newtype Amount = Amount
   { unAmount :: Rational
-  } deriving (Show, Eq, Enum, Fractional, Num, Ord, Real, RealFrac)
+  } deriving (Show, Eq, Enum, Fractional, Num, Ord, Real, RealFrac, Generic)
 
 instance Read Amount where
   readsPrec _ t = [((Amount . toRational . (read :: String -> Double)) t, "")]
@@ -146,7 +156,7 @@ parseDay = Cal.parseTimeM True Cal.defaultTimeLocale "%d.%m.%Y"
 
 newtype ExpenseId = ExpenseId
   { unExpenseId :: Integer
-  } deriving (Show, Eq)
+  } deriving (Show, Eq, Generic)
 
 instance Read ExpenseId where
   readsPrec _ s = [((ExpenseId . read) s, "")]
@@ -163,12 +173,40 @@ data Event =
   | DeleteExpense ExpenseDeletion
   deriving (Show, Generic)
 
+instance S.Serialize Event
+instance S.Serialize ExpenseId
+instance S.Serialize Amount
+instance S.Serialize Tag
+
+putDay :: S.Putter Cal.Day
+putDay = S.put . Cal.toModifiedJulianDay
+
+getDay :: S.Get Cal.Day
+getDay = Cal.ModifiedJulianDay <$> S.get
+
+instance S.Serialize Cal.Day where
+  put = putDay
+  get = getDay
+
+instance S.Serialize T.Text where
+  put t = do
+    let bs = TE.encodeUtf8 t
+    let l = fromIntegral $ BS.length bs
+    SP.putWord64le l
+    SP.putByteString bs
+    return ()
+  get = do
+    l <- fromIntegral <$> SG.getWord64le
+    TE.decodeUtf8 <$> SG.getByteString l
+
 data ExpenseCreation = ExpenseCreation
   { _createId     :: ExpenseId
   , _createDate   :: Cal.Day
   , _createAmount :: Amount
   , _createTags   :: [Tag]
   } deriving (Show, Generic)
+
+instance S.Serialize ExpenseCreation
 
 data ExpenseModification = ExpenseModification
   { _modifyId     :: ExpenseId
@@ -177,9 +215,13 @@ data ExpenseModification = ExpenseModification
   , _modifyTags   :: Maybe [Tag]
   } deriving (Show, Generic)
 
+instance S.Serialize ExpenseModification
+
 data ExpenseDeletion = ExpenseDeletion
   { _deleteId :: ExpenseId
   } deriving (Show, Generic)
+
+instance S.Serialize ExpenseDeletion
 
 data Expense = Expense
   { _expenseId :: ExpenseId
