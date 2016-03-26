@@ -30,11 +30,11 @@ data Command =
   deriving (Show)
 
 data Tag = Tag
-  { _tagName :: T.Text
+  { _tagName :: SerializableText
   } deriving (Show, Eq, Generic)
 
 instance Read Tag where
-  readsPrec _ t = [(Tag $ T.pack t, "")]
+  readsPrec _ t = [(Tag . SerializableText $ T.pack t, "")]
 
 newtype Amount = Amount
   { unAmount :: Rational
@@ -178,30 +178,30 @@ instance S.Serialize ExpenseId
 instance S.Serialize Amount
 instance S.Serialize Tag
 
-putDay :: S.Putter Cal.Day
-putDay = S.put . Cal.toModifiedJulianDay
+newtype SerializableDay = SerializableDay { unSerializableDay :: Cal.Day }
+                          deriving (Show, Eq)
 
-getDay :: S.Get Cal.Day
-getDay = Cal.ModifiedJulianDay <$> S.get
+instance S.Serialize SerializableDay where
+  put = S.put . Cal.toModifiedJulianDay . unSerializableDay
+  get = SerializableDay . Cal.ModifiedJulianDay <$> S.get
 
-instance S.Serialize Cal.Day where
-  put = putDay
-  get = getDay
+newtype SerializableText = SerializableText { unSerializableText :: T.Text }
+                           deriving (Show, Eq)
 
-instance S.Serialize T.Text where
+instance S.Serialize SerializableText where
   put t = do
-    let bs = TE.encodeUtf8 t
+    let bs = TE.encodeUtf8 $ unSerializableText t
     let l = fromIntegral $ BS.length bs
     SP.putWord64le l
     SP.putByteString bs
     return ()
   get = do
     l <- fromIntegral <$> SG.getWord64le
-    TE.decodeUtf8 <$> SG.getByteString l
+    SerializableText . TE.decodeUtf8 <$> SG.getByteString l
 
 data ExpenseCreation = ExpenseCreation
   { _createId     :: ExpenseId
-  , _createDate   :: Cal.Day
+  , _createDate   :: SerializableDay
   , _createAmount :: Amount
   , _createTags   :: [Tag]
   } deriving (Show, Generic)
@@ -210,7 +210,7 @@ instance S.Serialize ExpenseCreation
 
 data ExpenseModification = ExpenseModification
   { _modifyId     :: ExpenseId
-  , _modifyDate   :: Maybe Cal.Day
+  , _modifyDate   :: Maybe SerializableDay
   , _modifyAmount :: Maybe Amount
   , _modifyTags   :: Maybe [Tag]
   } deriving (Show, Generic)
