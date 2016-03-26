@@ -189,15 +189,10 @@ newtype SerializableText = SerializableText { unSerializableText :: T.Text }
                            deriving (Show, Eq)
 
 instance S.Serialize SerializableText where
-  put t = do
-    let bs = TE.encodeUtf8 $ unSerializableText t
-    let l = fromIntegral $ BS.length bs
-    SP.putWord64le l
-    SP.putByteString bs
-    return ()
-  get = do
-    l <- fromIntegral <$> SG.getWord64le
-    SerializableText . TE.decodeUtf8 <$> SG.getByteString l
+  put t = SP.putNested (SP.putWord64le . fromIntegral)
+    (S.put . TE.encodeUtf8 $ unSerializableText t)
+  get = SerializableText <$>
+    SG.getNested (fromIntegral <$> SG.getWord64le) (TE.decodeUtf8 <$> S.get)
 
 data ExpenseCreation = ExpenseCreation
   { _createId     :: ExpenseId
