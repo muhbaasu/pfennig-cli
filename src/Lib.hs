@@ -226,3 +226,9 @@ instance S.Serialize ExpenseDeletion
 data Expense = Expense
   { _expenseId :: ExpenseId
   } deriving (Show)
+
+newtype SizeTagged a = SizeTagged { unSizeTagged :: a } deriving (Show)
+
+instance S.Serialize a => S.Serialize (SizeTagged a) where
+  put s = SP.putNested (SP.putWord64le . fromIntegral) (S.put $ unSizeTagged s)
+  get = SizeTagged <$> SG.getNested (fromIntegral <$> SG.getWord64le) S.get
