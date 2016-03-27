@@ -239,8 +239,8 @@ getEvents :: FilePath -> IO [Event]
 getEvents file = P.runSafeT . P.toListM $ fileReader file P.>-> parseEvents
 
 fileReader :: (P.MonadIO m, P.MonadMask m) =>
-                FilePath ->
-                P.Producer PBS.ByteString (P.SafeT m) ()
+              FilePath ->
+              P.Producer PBS.ByteString (P.SafeT m) ()
 fileReader file = P.bracket
   (liftIO $ IO.openBinaryFile file IO.ReadWriteMode)
   (liftIO . IO.hClose)
