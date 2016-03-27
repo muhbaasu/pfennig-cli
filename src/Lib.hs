@@ -5,7 +5,9 @@
 
 module Lib where
 
-import qualified Data.ByteString                      as BS
+import           Control.Monad.IO.Class               (liftIO)
+import qualified Control.Monad.State.Strict           as State
+import           Control.Monad.Trans.Class            (lift)
 import           Data.Monoid                          ((<>))
 import qualified Data.Serialize                       as S
 import qualified Data.Serialize.Get                   as SG
@@ -19,6 +21,7 @@ import qualified Options.Applicative                  as OA
 import qualified Options.Applicative.Builder.Internal as OA
 import qualified Pipes                                as P
 import qualified Pipes.ByteString                     as PBS
+import qualified Pipes.Prelude                        as P
 import qualified Pipes.Safe                           as P
 import qualified System.IO                            as IO
 
@@ -227,3 +230,39 @@ newtype SizeTagged a = SizeTagged { unSizeTagged :: a } deriving (Show)
 instance S.Serialize a => S.Serialize (SizeTagged a) where
   put s = SP.putNested (SP.putWord64le . fromIntegral) (S.put $ unSizeTagged s)
   get = SizeTagged <$> SG.getNested (fromIntegral <$> SG.getWord64le) S.get
+
+{-|
+  File handling
+-}
+
+getEvents :: FilePath -> IO [Event]
+getEvents file = P.runSafeT . P.toListM $ fileReader file P.>-> parseEvents
+
+fileReader :: (P.MonadIO m, P.MonadMask m) =>
+                FilePath ->
+                P.Producer PBS.ByteString (P.SafeT m) ()
+fileReader file = P.bracket
+  (liftIO $ IO.openBinaryFile file IO.ReadWriteMode)
+  (liftIO . IO.hClose)
+  PBS.fromHandle
+
+-- | Parse events incrementally; abort on any parse error
+parseEvents :: Monad m => P.Pipe PBS.ByteString Event m ()
+parseEvents = State.evalStateT go Nothing
+  where go = do
+          s <- State.get
+          case s of
+            Nothing -> do              -- No previous state available
+              bs <- lift P.await
+              State.put . Just . SG.runGetPartial S.get $ bs
+              go
+            Just r -> case r of        -- Previous state available
+              SG.Fail _ _ -> return () -- Abort, parsing failed
+              SG.Partial cont -> do    -- Request more input
+                bs <- lift P.await
+                State.put . Just . cont $ bs
+                go
+              SG.Done evt rest -> do   -- Parsed an event successfully
+                lift $ P.yield evt
+                State.put . Just . SG.runGetPartial S.get $ rest
+                go
