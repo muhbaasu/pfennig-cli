@@ -8,6 +8,7 @@ module Lib where
 import           Control.Monad.IO.Class               (liftIO)
 import qualified Control.Monad.State.Strict           as State
 import           Control.Monad.Trans.Class            (lift)
+import           Data.Maybe                           (fromMaybe, mapMaybe)
 import           Data.Monoid                          ((<>))
 import qualified Data.Serialize                       as S
 import qualified Data.Serialize.Get                   as SG
@@ -235,8 +236,20 @@ instance S.Serialize a => S.Serialize (SizeTagged a) where
   File handling
 -}
 
+nextExpenseId :: [Event] -> ExpenseId
+nextExpenseId = fromMaybe (ExpenseId 0) . inc . safeLast . mapMaybe createId
+  where safeLast [] = Nothing
+        safeLast s = return $ last s
+        createId (CreateExpense opts) = Just $ _createId opts
+        createId _ = Nothing
+        inc = fmap (ExpenseId . (+1) . unExpenseId)
+
 getEvents :: FilePath -> IO [Event]
-getEvents file = P.runSafeT . P.toListM $ fileReader file P.>-> parseEvents
+getEvents file = P.runSafeT . P.toListM $ fileReader file P.>-> decodeEvents
+
+appendEvents :: FilePath -> [Event] -> IO ()
+appendEvents file events = P.runSafeT . P.runEffect $
+  P.each events P.>-> encodeEvents P.>-> fileAppender file
 
 fileReader :: (P.MonadIO m, P.MonadMask m) =>
               FilePath ->
@@ -246,9 +259,21 @@ fileReader file = P.bracket
   (liftIO . IO.hClose)
   PBS.fromHandle
 
--- | Parse events incrementally; abort on any parse error
-parseEvents :: Monad m => P.Pipe PBS.ByteString Event m ()
-parseEvents = State.evalStateT go Nothing
+fileAppender :: (P.MonadIO m, P.MonadMask m) =>
+                FilePath ->
+                P.Consumer PBS.ByteString (P.SafeT m) ()
+fileAppender file = P.bracket
+  (liftIO $ IO.openBinaryFile file IO.AppendMode)
+  (liftIO . IO.hClose)
+  PBS.toHandle
+
+-- | Serialize events
+encodeEvents :: Monad m => P.Pipe Event PBS.ByteString m ()
+encodeEvents = P.map S.encode
+
+-- | Deserialize events incrementally; abort on any parse error
+decodeEvents :: Monad m => P.Pipe PBS.ByteString Event m ()
+decodeEvents = State.evalStateT go Nothing
   where go = do
           s <- State.get
           case s of
