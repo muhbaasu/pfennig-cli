@@ -10,6 +10,8 @@ import           Control.Monad                        (join)
 import           Control.Monad.IO.Class               (liftIO)
 import qualified Control.Monad.State.Strict           as State
 import           Control.Monad.Trans.Class            (lift)
+import           Data.Hashable                        (Hashable)
+import qualified Data.HashMap.Strict                  as HM
 import           Data.List                            (intersperse, sortOn)
 import           Data.Maybe                           (fromMaybe, mapMaybe)
 import           Data.Monoid                          ((<>))
@@ -164,7 +166,7 @@ parseDay = Cal.parseTimeM True Cal.defaultTimeLocale "%d.%m.%Y"
 
 newtype ExpenseId = ExpenseId
   { unExpenseId :: Integer
-  } deriving (Show, Eq, Generic)
+  } deriving (Show, Eq, Generic, Hashable)
 
 instance Read ExpenseId where
   readsPrec _ s = [((ExpenseId . read) s, "")]
@@ -263,18 +265,24 @@ instance S.Serialize a => S.Serialize (SizeTagged a) where
   File handling
 -}
 
+defaultExpenseId :: ExpenseId
+defaultExpenseId = ExpenseId 0
+
+incExpenseId :: ExpenseId -> ExpenseId
+incExpenseId = ExpenseId . (+1) . unExpenseId
+
 nextExpenseId :: [Event] -> ExpenseId
-nextExpenseId = fromMaybe (ExpenseId 0) . inc . safeLast . mapMaybe createId
+nextExpenseId =
+  maybe defaultExpenseId incExpenseId . safeLast . mapMaybe createId
   where safeLast [] = Nothing
         safeLast s = return $ last s
         createId (CreateExpense opts) = Just $ _createId opts
         createId _ = Nothing
-        inc = fmap (ExpenseId . (+1) . unExpenseId)
 
-getEvents :: FilePath -> IO [Event]
+getEvents :: (P.MonadIO m, P.MonadMask m) => FilePath -> m [Event]
 getEvents file = P.runSafeT . P.toListM $ fileReader file P.>-> decodeEvents
 
-appendEvents :: FilePath -> [Event] -> IO ()
+appendEvents :: (P.MonadIO m, P.MonadMask m) => FilePath -> [Event] -> m ()
 appendEvents file events = P.runSafeT . P.runEffect $
   P.each events P.>-> encodeEvents P.>-> fileAppender file
 
@@ -293,6 +301,41 @@ fileAppender file = P.bracket
   (liftIO $ IO.openBinaryFile file IO.AppendMode)
   (liftIO . IO.hClose)
   PBS.toHandle
+
+computeExpenses :: [Event] -> [Expense]
+computeExpenses = sortOn _expenseDate . HM.elems . fst .
+  foldl applyEvent (HM.empty, defaultExpenseId)
+
+applyEvent :: (HM.HashMap ExpenseId Expense, ExpenseId) ->
+              Event ->
+              (HM.HashMap ExpenseId Expense, ExpenseId)
+applyEvent (hm, eid) (CreateExpense ec) =
+  let ex = Expense { _expenseId = eid
+                   , _expenseDate = unSerializableDay $ _createDate ec
+                   , _expenseAmount = _createAmount ec
+                   , _expenseTags = _createTags ec }
+      hm' = HM.insert eid ex hm
+  in (hm', incExpenseId eid)
+applyEvent acc@(hm, eid) (ModifyExpense me) =
+  let lookupId = _modifyId me
+      ex = HM.lookup lookupId hm
+  in case ex of
+    Nothing -> acc
+    Just ex' ->
+      let newDate = fromMaybe (_expenseDate ex')
+            (unSerializableDay <$> _modifyDate me)
+          newAmount = fromMaybe (_expenseAmount ex') (_modifyAmount me)
+          newTags = fromMaybe (_expenseTags ex') (_modifyTags me)
+          newEx = Expense { _expenseId = _expenseId ex'
+                          , _expenseDate = newDate
+                          , _expenseAmount = newAmount
+                          , _expenseTags = newTags }
+      in (HM.insert lookupId newEx hm, eid)
+applyEvent acc@(hm, eid) (DeleteExpense de) =
+  let lookupId = _deleteId de
+  in if HM.member lookupId hm
+     then (HM.delete lookupId hm, eid)
+     else acc
 
 -- | Serialize events
 encodeEvents :: Monad m => P.Pipe Event PBS.ByteString m ()
