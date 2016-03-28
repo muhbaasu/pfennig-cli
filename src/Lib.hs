@@ -85,8 +85,8 @@ defaultGlobalOptions = GlobalOptions { _globOptDb = "./db.bin" }
 
 programInfo :: OA.InfoMod a
 programInfo = OA.fullDesc <>
-  OA.progDesc "Pfennig CLI v0.0.1" <>
-  OA.header "Pfennig CLI -- Manage your expenses using simple tags"
+  OA.progDesc "Pfennig CLI v0.1.0.0" <>
+  OA.header "Pfennig CLI -- Manage your expenses"
 
 programOpts :: OA.Parser Command
 programOpts = OA.hsubparser
