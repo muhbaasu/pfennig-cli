@@ -2,12 +2,15 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE Rank2Types                 #-}
+{-# LANGUAGE RecordWildCards            #-}
 
 module Lib where
 
+import           Control.Monad                        (join)
 import           Control.Monad.IO.Class               (liftIO)
 import qualified Control.Monad.State.Strict           as State
 import           Control.Monad.Trans.Class            (lift)
+import           Data.List                            (intersperse, sortOn)
 import           Data.Maybe                           (fromMaybe, mapMaybe)
 import           Data.Monoid                          ((<>))
 import qualified Data.Serialize                       as S
@@ -25,6 +28,7 @@ import qualified Pipes.ByteString                     as PBS
 import qualified Pipes.Prelude                        as P
 import qualified Pipes.Safe                           as P
 import qualified System.IO                            as IO
+import           Text.Printf                          (printf)
 
 data Command =
     Add AddOptions
@@ -223,8 +227,31 @@ data ExpenseDeletion = ExpenseDeletion
 instance S.Serialize ExpenseDeletion
 
 data Expense = Expense
-  { _expenseId :: ExpenseId
+  { _expenseId     :: ExpenseId
+  , _expenseDate   :: Cal.Day
+  , _expenseAmount :: Amount
+  , _expenseTags   :: [Tag]
   } deriving (Show)
+
+formatExpense :: Expense -> String
+formatExpense Expense {..} =
+  "#" ++ formatId _expenseId ++ "\t" ++
+  formatDate _expenseDate ++ "\t€ " ++
+  formatAmount _expenseAmount ++ "\t\t" ++
+  formatTags _expenseTags
+
+formatId :: ExpenseId -> String
+formatId = show . unExpenseId
+
+formatDate :: Cal.Day -> String
+formatDate = Cal.formatTime Cal.defaultTimeLocale "%d.%m.%Y"
+
+formatAmount :: Amount -> String
+formatAmount a = printf "%5.2f" (fromRational (unAmount a) :: Double)
+
+formatTags :: [Tag] -> String
+formatTags = join . intersperse ", " . map tagToString
+  where tagToString = T.unpack . unSerializableText . _tagName
 
 newtype SizeTagged a = SizeTagged { unSizeTagged :: a } deriving (Show)
 
