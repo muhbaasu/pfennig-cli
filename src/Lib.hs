@@ -8,6 +8,7 @@ module Lib where
 
 import           Control.Monad                        (join)
 import           Control.Monad.IO.Class               (liftIO)
+import           Control.Monad.Reader                 (ReaderT, ask)
 import qualified Control.Monad.State.Strict           as State
 import           Control.Monad.Trans.Class            (lift)
 import           Data.Hashable                        (Hashable)
@@ -22,6 +23,7 @@ import qualified Data.Text                            as T
 import qualified Data.Text.Encoding                   as TE
 import qualified Data.Time.Calendar                   as Cal
 import qualified Data.Time.Format                     as Cal
+import qualified Data.Time.LocalTime                  as Time
 import           GHC.Generics                         (Generic (..))
 import qualified Options.Applicative                  as OA
 import qualified Options.Applicative.Builder.Internal as OA
@@ -73,6 +75,13 @@ data DeleteOptions = DeleteOptions
 data ShowOptions = ShowOptions
   {
   } deriving (Show)
+
+data GlobalOptions = GlobalOptions
+  { _globOptDb :: FilePath
+  } deriving (Show)
+
+defaultGlobalOptions :: GlobalOptions
+defaultGlobalOptions = GlobalOptions { _globOptDb = "./db.bin" }
 
 programInfo :: OA.InfoMod a
 programInfo = OA.fullDesc <>
@@ -170,12 +179,6 @@ newtype ExpenseId = ExpenseId
 
 instance Read ExpenseId where
   readsPrec _ s = [((ExpenseId . read) s, "")]
-
-interpret :: Monad m => Command -> m ()
-interpret (Add opts) = return ()
-interpret (Modify opts) = return ()
-interpret (Delete opts) = return ()
-interpret (Show opts) = return ()
 
 data Event =
     CreateExpense ExpenseCreation
@@ -301,6 +304,54 @@ fileAppender file = P.bracket
   (liftIO $ IO.openBinaryFile file IO.AppendMode)
   (liftIO . IO.hClose)
   PBS.toHandle
+
+interpret :: (P.MonadIO m, P.MonadMask m) =>
+             Command -> ReaderT GlobalOptions m ()
+interpret (Add opts) = do
+  file <- _globOptDb <$> ask
+  events <- getEvents file
+  let nextId = nextExpenseId events
+  zonedTime <- liftIO Time.getZonedTime
+  let today = Time.localDay . Time.zonedTimeToLocalTime $ zonedTime
+  let expenseCreation = ExpenseCreation
+        { _createId = nextId
+        , _createDate = SerializableDay $ fromMaybe today $ _addOptDate opts
+        , _createAmount = _addOptAmount opts
+        , _createTags = _addOptTags opts }
+  appendEvents file [CreateExpense expenseCreation]
+interpret (Modify mo) = do
+  file <- _globOptDb <$> ask
+  events <- getEvents file
+  let expenses = computeExpenses events
+  let eid = _modOptId mo
+  let idExists = any (\e -> _expenseId e == eid) expenses
+  if idExists                   -- Check if any changes included at all
+     then let expenseModification = ExpenseModification
+                { _modifyId = eid
+                , _modifyDate = SerializableDay <$> _modOptDate mo
+                , _modifyAmount = _modOptAmount mo
+                , _modifyTags = _modOptTags mo }
+          in appendEvents file [ModifyExpense expenseModification]
+    else do
+      liftIO $ putStrLn $ "Couldn't find expense with ID #" ++ formatId eid
+      return ()
+interpret (Delete delOpt) = do
+  file <- _globOptDb <$> ask
+  events <- getEvents file
+  let expenses = computeExpenses events
+  let eid = _delOptId delOpt
+  let idExists = any (\e -> _expenseId e == eid) expenses
+  if idExists
+     then let expenseDeletion = ExpenseDeletion { _deleteId = eid }
+          in appendEvents file [DeleteExpense expenseDeletion]
+    else do
+      liftIO $ putStrLn $ "Couldn't find expense with ID #" ++ formatId eid
+      return ()
+interpret (Show _) = do
+  cfg <- ask
+  events <- getEvents $ _globOptDb cfg
+  let expenses = computeExpenses events
+  liftIO $ mapM_ (putStrLn . formatExpense) expenses
 
 computeExpenses :: [Event] -> [Expense]
 computeExpenses = sortOn _expenseDate . HM.elems . fst .
