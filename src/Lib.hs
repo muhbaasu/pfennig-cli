@@ -35,14 +35,14 @@ import qualified System.IO                            as IO
 import           Text.Printf                          (printf)
 
 data Command =
-    Add AddOptions
-  | Modify ModifyOptions
-  | Delete DeleteOptions
-  | Show ShowOptions
+    Add !AddOptions
+  | Modify !ModifyOptions
+  | Delete !DeleteOptions
+  | Show !ShowOptions
   deriving (Show)
 
 data Tag = Tag
-  { _tagName :: SerializableText
+  { _tagName :: !SerializableText
   } deriving (Show, Eq, Generic)
 
 instance Read Tag where
@@ -57,19 +57,19 @@ instance Read Amount where
 
 data AddOptions = AddOptions
   { _addOptDate   :: Maybe Cal.Day
-  , _addOptAmount :: Amount
-  , _addOptTags   :: [Tag]
+  , _addOptAmount :: !Amount
+  , _addOptTags   :: ![Tag]
   } deriving (Show)
 
 data ModifyOptions = ModifyOptions
-  { _modOptId     :: ExpenseId
+  { _modOptId     :: !ExpenseId
   , _modOptDate   :: Maybe Cal.Day
   , _modOptAmount :: Maybe Amount
   , _modOptTags   :: Maybe [Tag]
   } deriving (Show)
 
 data DeleteOptions = DeleteOptions
-  { _delOptId :: ExpenseId
+  { _delOptId :: !ExpenseId
   } deriving (Show)
 
 data ShowOptions = ShowOptions
@@ -77,7 +77,7 @@ data ShowOptions = ShowOptions
   } deriving (Show)
 
 data GlobalOptions = GlobalOptions
-  { _globOptDb :: FilePath
+  { _globOptDb :: !FilePath
   } deriving (Show)
 
 defaultGlobalOptions :: GlobalOptions
@@ -181,9 +181,9 @@ instance Read ExpenseId where
   readsPrec _ s = [((ExpenseId . read) s, "")]
 
 data Event =
-    CreateExpense ExpenseCreation
-  | ModifyExpense ExpenseModification
-  | DeleteExpense ExpenseDeletion
+    CreateExpense !ExpenseCreation
+  | ModifyExpense !ExpenseModification
+  | DeleteExpense !ExpenseDeletion
   deriving (Show, Generic)
 
 instance S.Serialize Event
@@ -208,16 +208,16 @@ instance S.Serialize SerializableText where
     SG.getNested (fromIntegral <$> SG.getWord64le) (TE.decodeUtf8 <$> S.get)
 
 data ExpenseCreation = ExpenseCreation
-  { _createId     :: ExpenseId
-  , _createDate   :: SerializableDay
-  , _createAmount :: Amount
-  , _createTags   :: [Tag]
+  { _createId     :: !ExpenseId
+  , _createDate   :: !SerializableDay
+  , _createAmount :: !Amount
+  , _createTags   :: ![Tag]
   } deriving (Show, Generic)
 
 instance S.Serialize ExpenseCreation
 
 data ExpenseModification = ExpenseModification
-  { _modifyId     :: ExpenseId
+  { _modifyId     :: !ExpenseId
   , _modifyDate   :: Maybe SerializableDay
   , _modifyAmount :: Maybe Amount
   , _modifyTags   :: Maybe [Tag]
@@ -226,16 +226,16 @@ data ExpenseModification = ExpenseModification
 instance S.Serialize ExpenseModification
 
 data ExpenseDeletion = ExpenseDeletion
-  { _deleteId :: ExpenseId
+  { _deleteId :: !ExpenseId
   } deriving (Show, Generic)
 
 instance S.Serialize ExpenseDeletion
 
 data Expense = Expense
-  { _expenseId     :: ExpenseId
-  , _expenseDate   :: Cal.Day
-  , _expenseAmount :: Amount
-  , _expenseTags   :: [Tag]
+  { _expenseId     :: !ExpenseId
+  , _expenseDate   :: !Cal.Day
+  , _expenseAmount :: !Amount
+  , _expenseTags   :: ![Tag]
   } deriving (Show)
 
 formatExpense :: Expense -> String
