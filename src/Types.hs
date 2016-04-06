@@ -36,16 +36,16 @@ instance Read Amount where
   readsPrec _ t = [((Amount . toRational . (read :: String -> Double)) t, "")]
 
 data AddOptions = AddOptions
-  { _addOptDate   :: Maybe Cal.Day
+  { _addOptDate   :: !(Maybe Cal.Day)
   , _addOptAmount :: !Amount
   , _addOptTags   :: ![Tag]
   } deriving (Show)
 
 data ModifyOptions = ModifyOptions
   { _modOptId     :: !ExpenseId
-  , _modOptDate   :: Maybe Cal.Day
-  , _modOptAmount :: Maybe Amount
-  , _modOptTags   :: Maybe [Tag]
+  , _modOptDate   :: !(Maybe Cal.Day)
+  , _modOptAmount :: !(Maybe Amount)
+  , _modOptTags   :: !(Maybe [Tag])
   } deriving (Show)
 
 data DeleteOptions = DeleteOptions
@@ -105,9 +105,9 @@ instance S.Serialize ExpenseCreation
 
 data ExpenseModification = ExpenseModification
   { _modifyId     :: !ExpenseId
-  , _modifyDate   :: Maybe SerializableDay
-  , _modifyAmount :: Maybe Amount
-  , _modifyTags   :: Maybe [Tag]
+  , _modifyDate   :: !(Maybe SerializableDay)
+  , _modifyAmount :: !(Maybe Amount)
+  , _modifyTags   :: !(Maybe [Tag])
   } deriving (Show, Generic)
 
 instance S.Serialize ExpenseModification
