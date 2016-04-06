@@ -35,6 +35,15 @@ newtype Amount = Amount
 instance Read Amount where
   readsPrec _ t = [((Amount . toRational . (read :: String -> Double)) t, "")]
 
+data ProgramArgs = ProgramArgs
+  { _progArgsGlobalOpts :: !GlobalOptions
+  , _progArgsCommand    :: !Command
+  } deriving (Show)
+
+data GlobalOptions = GlobalOptions
+  { _globOptUser :: !(Maybe T.Text)
+  } deriving (Show)
+
 data AddOptions = AddOptions
   { _addOptDate   :: !(Maybe Cal.Day)
   , _addOptAmount :: !Amount
@@ -56,7 +65,7 @@ data ShowOptions = ShowOptions
   {
   } deriving (Show)
 
-data GlobalOptions = GlobalOptions
+data GlobalSettings = GlobalSettings
   { _globOptDb :: !FilePath
   } deriving (Show)
 

@@ -29,22 +29,34 @@ import qualified Pipes.Safe                           as P
 import qualified System.IO                            as IO
 import           Text.Printf                          (printf)
 
-defaultGlobalOptions :: GlobalOptions
-defaultGlobalOptions = GlobalOptions { _globOptDb = "./db.bin" }
+defaultGlobalSettings :: GlobalSettings
+defaultGlobalSettings = GlobalSettings { _globOptDb = "./db.bin" }
 
-parseArgs :: IO Command
-parseArgs = OA.execParser (OA.info (OA.helper <*> programOpts) programInfo)
+parseArgs :: IO ProgramArgs
+parseArgs = OA.execParser (OA.info (OA.helper <*> programArgs) programInfo)
 
-runCommand :: Command -> IO ()
-runCommand cmd = runReaderT (interpret cmd) defaultGlobalOptions
+runCommand :: ProgramArgs -> IO ()
+runCommand ProgramArgs {..} =
+  runReaderT (interpret _progArgsCommand) defaultGlobalSettings
 
 programInfo :: OA.InfoMod a
 programInfo = OA.fullDesc <>
   OA.progDesc "Pfennig CLI v0.2.0.0" <>
   OA.header "Pfennig CLI -- Manage your expenses"
 
-programOpts :: OA.Parser Command
-programOpts = OA.hsubparser
+programArgs :: OA.Parser ProgramArgs
+programArgs =
+  ProgramArgs <$>
+  programOpts <*>
+  programCommand
+
+programOpts :: OA.Parser GlobalOptions
+programOpts =
+  GlobalOptions <$>
+  userArgument
+
+programCommand :: OA.Parser Command
+programCommand = OA.hsubparser
   (OA.command "add"
    (OA.info addOptions $ OA.progDesc "Add an expense") <>
    OA.command "modify"
@@ -76,6 +88,13 @@ deleteOptions = Delete <$>
 
 showOptions :: OA.Parser Command
 showOptions = pure $ Show ShowOptions
+
+userArgument :: OA.Parser (Maybe T.Text)
+userArgument = OA.optional $ T.pack <$> OA.strOption
+  (OA.metavar "USER" <>
+   OA.help "User performing the command" <>
+   OA.long "user" <>
+   OA.short 'u')
 
 expenseIdArgument :: OA.Parser ExpenseId
 expenseIdArgument = OA.argument OA.auto expenseIdMods
@@ -190,7 +209,7 @@ fileAppender file = P.bracket
   PBS.toHandle
 
 interpret :: (P.MonadIO m, P.MonadMask m) =>
-             Command -> ReaderT GlobalOptions m ()
+             Command -> ReaderT GlobalSettings m ()
 interpret (Add opts) = do
   file <- _globOptDb <$> ask
   events <- getEvents file
