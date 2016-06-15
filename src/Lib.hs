@@ -87,7 +87,15 @@ deleteOptions = Delete <$>
    expenseIdArgument)
 
 showOptions :: OA.Parser Command
-showOptions = pure $ Show ShowOptions
+showOptions = Show <$>
+  (ShowOptions <$>
+   logArgument)
+
+logArgument :: OA.Parser ShowMode
+logArgument = OA.flag ShowRegular ShowAudit
+  (OA.help "Log all events" <>
+   OA.long "log" <>
+   OA.short 'l')
 
 userArgument :: OA.Parser (Maybe T.Text)
 userArgument = OA.optional $ T.pack <$> OA.strOption
@@ -150,9 +158,23 @@ parseDay = Cal.parseTimeM True Cal.defaultTimeLocale "%d.%m.%Y"
 formatExpense :: Expense -> String
 formatExpense Expense {..} =
   "#" ++ formatId _expenseId ++ "\t" ++
-  formatDate _expenseDate ++ "\t€ " ++
+  formatDate _expenseDate ++ "\t" ++
   formatAmount _expenseAmount ++ "\t\t" ++
   formatTags _expenseTags
+
+formatEvent :: Event -> String
+formatEvent (CreateExpense ExpenseCreation {..}) =
+  "[Create] #" ++ formatId _createId ++ "\t" ++
+  formatDate (unSerializableDay _createDate) ++ "\t" ++
+  formatAmount _createAmount ++ "\t\t" ++
+  formatTags _createTags
+formatEvent (ModifyExpense ExpenseModification {..}) =
+  "[Modify] #" ++ formatId _modifyId ++ "\t" ++
+  maybe "\t" (formatDate . unSerializableDay) _modifyDate ++ "\t" ++
+  maybe "\t" formatAmount _modifyAmount ++ "\t\t" ++
+  maybe "" formatTags _modifyTags
+formatEvent (DeleteExpense ExpenseDeletion {..}) =
+  "[Delete] #" ++ formatId _deleteId
 
 formatId :: ExpenseId -> String
 formatId = show . unExpenseId
@@ -161,7 +183,7 @@ formatDate :: Cal.Day -> String
 formatDate = Cal.formatTime Cal.defaultTimeLocale "%d.%m.%Y"
 
 formatAmount :: Amount -> String
-formatAmount a = printf "%5.2f" (fromRational (unAmount a) :: Double)
+formatAmount a = printf "€ %5.2f" (fromRational (unAmount a) :: Double)
 
 formatTags :: [Tag] -> String
 formatTags = join . intersperse ", " . map tagToString
@@ -250,11 +272,16 @@ interpret (Delete delOpt) = do
     else do
       liftIO $ putStrLn $ "Couldn't find expense with ID #" ++ formatId eid
       return ()
-interpret (Show _) = do
+interpret (Show mode) = do
   cfg <- ask
   events <- getEvents $ _globOptDb cfg
-  let expenses = computeExpenses events
-  liftIO $ mapM_ (putStrLn . formatExpense) expenses
+
+  case _showOptMode mode of
+    ShowRegular -> do
+      let expenses = computeExpenses events
+      liftIO $ mapM_ (putStrLn . formatExpense) expenses
+    ShowAudit ->
+      liftIO $ mapM_ (putStrLn . formatEvent) events
 
 computeExpenses :: [Event] -> [Expense]
 computeExpenses = sortOn _expenseDate . HM.elems . fst .

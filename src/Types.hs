@@ -61,8 +61,11 @@ data DeleteOptions = DeleteOptions
   { _delOptId :: !ExpenseId
   } deriving (Show)
 
+data ShowMode = ShowRegular | ShowAudit
+  deriving (Show)
+
 data ShowOptions = ShowOptions
-  {
+  { _showOptMode :: !ShowMode
   } deriving (Show)
 
 data GlobalSettings = GlobalSettings
