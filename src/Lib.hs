@@ -11,7 +11,8 @@ import           Control.Monad.Reader                 (ReaderT, ask, runReaderT)
 import qualified Control.Monad.State.Strict           as State
 import           Control.Monad.Trans.Class            (lift)
 import qualified Data.HashMap.Strict                  as HM
-import           Data.List                            (intersperse, sortOn)
+import           Data.List                            (intercalate, intersperse,
+                                                       sortOn)
 import           Data.Maybe                           (fromMaybe, mapMaybe)
 import           Data.Monoid                          ((<>))
 import qualified Data.Serialize                       as S
@@ -275,13 +276,17 @@ interpret (Delete delOpt) = do
 interpret (Show mode) = do
   cfg <- ask
   events <- getEvents $ _globOptDb cfg
+  let expenses = computeExpenses events
 
-  case _showOptMode mode of
-    ShowRegular -> do
-      let expenses = computeExpenses events
-      liftIO $ mapM_ (putStrLn . formatExpense) expenses
-    ShowAudit ->
-      liftIO $ mapM_ (putStrLn . formatEvent) events
+  liftIO $ putStrLn $ case _showOptMode mode of
+    ShowRegular -> formatExpenses expenses
+    ShowAudit -> formatEvents events
+
+formatExpenses :: [Expense] -> String
+formatExpenses = intercalate "\n" . mapM formatExpense
+
+formatEvents :: [Event] -> String
+formatEvents = intercalate "\n" . mapM formatEvent
 
 computeExpenses :: [Event] -> [Expense]
 computeExpenses = sortOn _expenseDate . HM.elems . fst .
